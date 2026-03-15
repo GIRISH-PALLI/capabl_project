@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from time import sleep, time
 from typing import Optional
 
 import pandas as pd
@@ -9,6 +10,12 @@ import yfinance as yf
 
 
 DEFAULT_INDIAN_TICKERS = ["RELIANCE.NS", "TCS.NS"]
+
+_RATE_LIMIT_SECONDS = 0.35
+_last_yf_call_at = 0.0
+_snapshot_cache: dict[str, tuple[float, "StockSnapshot"]] = {}
+_history_cache: dict[str, tuple[float, pd.DataFrame]] = {}
+_CACHE_TTL_SECONDS = 300
 
 
 @dataclass
@@ -101,24 +108,74 @@ def normalize_ticker(raw_ticker: str) -> str:
     return ticker
 
 
+def _throttle_yfinance() -> None:
+    global _last_yf_call_at
+    now = time()
+    elapsed = now - _last_yf_call_at
+    if elapsed < _RATE_LIMIT_SECONDS:
+        sleep(_RATE_LIMIT_SECONDS - elapsed)
+    _last_yf_call_at = time()
+
+
+def _cache_snapshot_get(ticker: str) -> Optional[StockSnapshot]:
+    payload = _snapshot_cache.get(ticker)
+    if payload is None:
+        return None
+
+    expires_at, snapshot = payload
+    if time() > expires_at:
+        _snapshot_cache.pop(ticker, None)
+        return None
+
+    return snapshot
+
+
+def _cache_history_get(key: str) -> pd.DataFrame | None:
+    payload = _history_cache.get(key)
+    if payload is None:
+        return None
+
+    expires_at, history = payload
+    if time() > expires_at:
+        _history_cache.pop(key, None)
+        return None
+
+    return history.copy()
+
+
 def fetch_stock_snapshot(ticker: str) -> Optional[StockSnapshot]:
     clean_ticker = normalize_ticker(ticker)
     if not clean_ticker:
         return None
+
+    cached = _cache_snapshot_get(clean_ticker)
+    if cached is not None:
+        return cached
+
+    _throttle_yfinance()
 
     stock = yf.Ticker(clean_ticker)
 
     try:
         history = stock.history(period="5d", interval="1d")
     except Exception:
-        return _demo_snapshot(clean_ticker)
+        snapshot = _demo_snapshot(clean_ticker)
+        if snapshot is not None:
+            _snapshot_cache[clean_ticker] = (time() + _CACHE_TTL_SECONDS, snapshot)
+        return snapshot
 
     if history.empty:
-        return _demo_snapshot(clean_ticker)
+        snapshot = _demo_snapshot(clean_ticker)
+        if snapshot is not None:
+            _snapshot_cache[clean_ticker] = (time() + _CACHE_TTL_SECONDS, snapshot)
+        return snapshot
 
     close_series = history["Close"].dropna()
     if close_series.empty:
-        return _demo_snapshot(clean_ticker)
+        snapshot = _demo_snapshot(clean_ticker)
+        if snapshot is not None:
+            _snapshot_cache[clean_ticker] = (time() + _CACHE_TTL_SECONDS, snapshot)
+        return snapshot
 
     last_price = float(close_series.iloc[-1])
     previous_close = float(close_series.iloc[-2]) if len(close_series) > 1 else last_price
@@ -142,7 +199,7 @@ def fetch_stock_snapshot(ticker: str) -> Optional[StockSnapshot]:
     day_change = float(last_price) - previous_close
     day_change_pct = (day_change / previous_close * 100.0) if previous_close else 0.0
 
-    return StockSnapshot(
+    snapshot = StockSnapshot(
         ticker=clean_ticker,
         company_name=company_name,
         currency=currency,
@@ -153,6 +210,8 @@ def fetch_stock_snapshot(ticker: str) -> Optional[StockSnapshot]:
         volume=volume,
         data_source="live",
     )
+    _snapshot_cache[clean_ticker] = (time() + _CACHE_TTL_SECONDS, snapshot)
+    return snapshot
 
 
 def fetch_price_history(ticker: str, period: str = "3mo", interval: str = "1d") -> pd.DataFrame:
@@ -160,17 +219,29 @@ def fetch_price_history(ticker: str, period: str = "3mo", interval: str = "1d") 
     if not clean_ticker:
         return pd.DataFrame()
 
+    cache_key = f"{clean_ticker}:{period}:{interval}"
+    cached = _cache_history_get(cache_key)
+    if cached is not None:
+        return cached
+
+    _throttle_yfinance()
+
     stock = yf.Ticker(clean_ticker)
     try:
         history = stock.history(period=period, interval=interval)
     except Exception:
-        return _demo_history(clean_ticker)
+        history = _demo_history(clean_ticker)
+        _history_cache[cache_key] = (time() + _CACHE_TTL_SECONDS, history.copy())
+        return history
 
     if history.empty:
-        return _demo_history(clean_ticker)
+        history = _demo_history(clean_ticker)
+        _history_cache[cache_key] = (time() + _CACHE_TTL_SECONDS, history.copy())
+        return history
 
     history = history.reset_index()
     if "Date" in history.columns:
         history.rename(columns={"Date": "Datetime"}, inplace=True)
 
+    _history_cache[cache_key] = (time() + _CACHE_TTL_SECONDS, history.copy())
     return history

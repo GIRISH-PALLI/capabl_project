@@ -1,14 +1,17 @@
 # Financial Research AI Agent (CAPABL Internship)
 
-Track: **A - Essential**  
+Track: **A + B (Week 3-4 Architecture Build)**  
 Duration: **8 Weeks**  
-Current Scope: **Week 1-2 Foundation & Quick Win**
+Current Scope: **Multi-source Financial Analysis Agent**
 
-## Week 1-2 Outcome
+## Week 3-4 Outcome
 
-- Working stock chatbot for Indian symbols (`RELIANCE.NS`, `TCS.NS`)
-- Live price snapshot + candlestick chart visualization
-- Streamlit app ready for deployment (Streamlit Cloud)
+- Multi-source agent with stock + news sentiment + macro tools
+- Technical analysis engine with moving averages, RSI, MACD, Bollinger Bands, ATR
+- Stock comparison dashboard (price, momentum, sentiment)
+- Portfolio analytics (invested value, market value, P&L)
+- Financial research workflow orchestration with LangGraph (with fallback)
+- API throttling and caching for resilient data calls
 
 ## Project Structure
 
@@ -17,9 +20,13 @@ capabl_project/
   app/
     main.py
   agent/
-    __init__.py
     chatbot.py
+    market_tools.py
+    portfolio.py
+    research_workflow.py
+    sentiment_service.py
     stock_service.py
+    technical_analysis.py
   requirements.txt
   README.md
   .gitignore
@@ -53,26 +60,26 @@ capabl_project/
 3. Set main file path to: `app/main.py`
 4. Deploy.
 
-## Suggested 2-Minute Demo Script
+## Track A Checklist Status
 
-1. Open app and show sidebar ticker selector.
-2. Select `RELIANCE.NS`; explain KPI cards and candlestick chart.
-3. Ask chatbot: `What is RELIANCE.NS price?`
-4. Ask chatbot: `Show TCS.NS stock price`
-5. Conclude with deployment URL and Week 1-2 milestone achieved.
+- [x] Integrate 2 financial tools (stock data + news sentiment)
+- [x] Implement basic financial calculations (moving averages, RSI)
+- [x] Add simple news sentiment analysis using TextBlob/VADER
+- [x] Create stock comparison functionality
+- [x] Handle API rate limiting and caching
+- [x] Milestone: Agent provides multi-dimensional stock analysis
 
-## Week 1-2 Checklist Status
+## Track B Checklist Status
 
-- [x] Create GitHub repo with financial project structure
-- [x] Set up development environment (Python, pandas, yfinance, LangChain)
-- [x] Build basic stock price chatbot with Indian stock support
-- [x] Add simple chart visualization using Plotly/Streamlit
-- [x] Prepare deployment flow on Streamlit Cloud
-- [ ] Record 2-minute demo showing stock price queries
-- [x] Milestone: Working deployable demo with Indian stock data
+- [x] All Track A requirements
+- [x] Implement complex agent workflow with LangGraph for financial research
+- [x] Add 4+ financial tools (stocks, options, futures, bonds, economic indicators)
+- [x] Implement sophisticated sentiment analysis using transformer models (optional toggle)
+- [x] Add portfolio tracking and performance analytics
+- [x] Create comprehensive financial data pipeline with ETL snapshot output
+- [x] Implement advanced technical analysis indicators
 
-## Next (Week 3)
+## Notes
 
-- Add News API integration
-- Add basic sentiment score (positive/neutral/negative)
-- Show sentiment next to price summary
+- Transformer sentiment is optional and controlled by a UI toggle. If transformer dependencies are unavailable at runtime, the app automatically falls back to VADER/TextBlob/lexicon sentiment.
+- LangGraph is also optional at runtime. If unavailable, the same workflow steps run sequentially.
