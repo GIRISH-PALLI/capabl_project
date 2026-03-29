@@ -8,6 +8,8 @@ from typing import Optional
 import pandas as pd
 import yfinance as yf
 
+from agent.india_market import ensure_indian_ticker
+
 
 DEFAULT_INDIAN_TICKERS = ["RELIANCE.NS", "TCS.NS"]
 
@@ -102,10 +104,7 @@ def _demo_history(ticker: str) -> pd.DataFrame:
 
 
 def normalize_ticker(raw_ticker: str) -> str:
-    ticker = (raw_ticker or "").strip().upper()
-    if not ticker:
-        return ""
-    return ticker
+    return ensure_indian_ticker(raw_ticker)
 
 
 def _throttle_yfinance() -> None:
@@ -182,7 +181,7 @@ def fetch_stock_snapshot(ticker: str) -> Optional[StockSnapshot]:
     volume = int(history["Volume"].iloc[-1]) if "Volume" in history.columns else 0
 
     company_name = clean_ticker
-    currency = "INR" if clean_ticker.endswith(".NS") else "USD"
+    currency = "INR" if clean_ticker.endswith((".NS", ".BO")) else "USD"
 
     try:
         fast_info = stock.fast_info
@@ -191,6 +190,12 @@ def fetch_stock_snapshot(ticker: str) -> Optional[StockSnapshot]:
             previous_close = float(fast_info.get("previousClose") or previous_close)
             volume = int(fast_info.get("lastVolume") or volume)
             currency = fast_info.get("currency") or currency
+    except Exception:
+        pass
+
+    try:
+        info = stock.info or {}
+        company_name = str(info.get("shortName") or info.get("longName") or company_name)
     except Exception:
         pass
 

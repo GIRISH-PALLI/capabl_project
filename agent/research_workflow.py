@@ -2,12 +2,16 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
+from agent.advanced_models import optimize_portfolio_mpt
 from agent.market_tools import (
     compare_stocks,
     get_bonds_tool,
     get_economic_indicators_tool,
+    get_fundamental_tool,
     get_futures_tool,
+    get_multi_api_health_tool,
     get_options_tool,
+    get_sector_comparison_tool,
     get_stock_research,
 )
 from agent.portfolio import Holding, analyze_portfolio
@@ -21,10 +25,14 @@ class ResearchState(TypedDict, total=False):
     stock_research: Any
     peer_comparison: Any
     options: Any
+    fundamentals: Any
+    sector_comparison: Any
     futures: Any
     bonds: Any
     economic_indicators: Any
+    multi_api: Any
     portfolio: Any
+    mpt: Any
     summary: str
 
 
@@ -34,6 +42,8 @@ def _gather_primary(state: ResearchState) -> ResearchState:
         use_transformer=bool(state.get("use_transformer", False)),
     )
     state["options"] = get_options_tool(state["ticker"])
+    state["fundamentals"] = get_fundamental_tool(state["ticker"])
+    state["multi_api"] = get_multi_api_health_tool(state["ticker"])
     return state
 
 
@@ -49,8 +59,12 @@ def _peer_analysis(state: ResearchState) -> ResearchState:
     if peers:
         tickers = [state["ticker"], *peers]
         state["peer_comparison"] = compare_stocks(tickers, use_transformer=bool(state.get("use_transformer", False)))
+        state["sector_comparison"] = get_sector_comparison_tool(tickers)
+        state["mpt"] = optimize_portfolio_mpt(tickers)
     else:
         state["peer_comparison"] = []
+        state["sector_comparison"] = []
+        state["mpt"] = None
     return state
 
 
@@ -85,6 +99,9 @@ def _summarize(state: ResearchState) -> ResearchState:
     peer_count = len(state.get("peer_comparison") or [])
     if peer_count > 1:
         summary += f" Compared against {peer_count - 1} peer stocks."
+
+    if state.get("mpt") is not None:
+        summary += f" MPT portfolio Sharpe: {state['mpt'].sharpe_ratio:.2f}."
 
     if state.get("portfolio") is not None:
         summary += " Portfolio analytics included."

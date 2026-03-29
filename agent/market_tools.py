@@ -7,6 +7,8 @@ from typing import Any
 
 import yfinance as yf
 
+from agent.fundamental_analysis import FundamentalSnapshot, SectorComparisonRow, compare_sector, get_fundamental_snapshot
+from agent.multi_api_service import ApiResult, fetch_multi_api_snapshot
 from agent.sentiment_service import (
     SentimentReport,
     analyze_sentiment_simple,
@@ -45,6 +47,18 @@ class MacroInstrumentSnapshot:
     name: str
     price: float
     day_change_pct: float
+
+
+def get_fundamental_tool(ticker: str) -> FundamentalSnapshot:
+    return get_fundamental_snapshot(ticker)
+
+
+def get_sector_comparison_tool(tickers: list[str]) -> list[SectorComparisonRow]:
+    return compare_sector(tickers)
+
+
+def get_multi_api_health_tool(ticker: str) -> list[ApiResult]:
+    return fetch_multi_api_snapshot(ticker)
 
 
 def _throttle() -> None:
@@ -240,8 +254,10 @@ def etl_market_snapshot(tickers: list[str]) -> dict[str, Any]:
     result = {
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "stocks": compare_stocks(tickers),
+        "fundamentals": [get_fundamental_tool(ticker) for ticker in tickers],
         "futures": get_futures_tool(),
         "bonds": get_bonds_tool(),
         "economic_indicators": get_economic_indicators_tool(),
+        "multi_api": get_multi_api_health_tool(tickers[0]) if tickers else [],
     }
     return result

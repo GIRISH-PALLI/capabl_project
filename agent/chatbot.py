@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from agent.india_market import ensure_indian_ticker
 from agent.market_tools import get_stock_research
 from agent.stock_service import DEFAULT_INDIAN_TICKERS
 
@@ -36,6 +37,12 @@ def _extract_ticker(user_message: str) -> str | None:
     for alias, ticker in aliases.items():
         if alias in message:
             return ticker
+
+    naked_symbol = re.findall(r"\b[A-Z]{2,10}\b", message)
+    for token in naked_symbol:
+        if token in {"PRICE", "STOCK", "QUOTE", "LATEST", "MARKET", "VALUE", "SHOW", "COMPARE", "AND"}:
+            continue
+        return ensure_indian_ticker(token)
 
     return None
 

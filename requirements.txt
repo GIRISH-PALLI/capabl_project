@@ -8,3 +8,4 @@ textblob==0.19.0
 vaderSentiment==3.3.2
 langgraph==0.2.60
 transformers==4.48.3
+requests==2.32.3

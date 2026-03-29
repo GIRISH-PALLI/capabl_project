@@ -13,22 +13,28 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from agent.chatbot import answer_query
+from agent.alerts import evaluate_price_alerts
+from agent.advanced_models import black_scholes_price, optimize_portfolio_mpt
+from agent.fundamental_analysis import compare_sector, get_fundamental_snapshot
+from agent.india_market import format_inr, get_market_hours_status
 from agent.market_tools import (
     compare_stocks,
     get_bonds_tool,
     get_economic_indicators_tool,
     get_futures_tool,
+    get_multi_api_health_tool,
     get_stock_research,
 )
 from agent.portfolio import Holding, analyze_portfolio
 from agent.research_workflow import run_financial_research
 from agent.stock_service import DEFAULT_INDIAN_TICKERS, fetch_price_history
 from agent.technical_analysis import add_indicators
+from agent.watchlist_db import add_alert, add_to_watchlist, get_watchlist, list_alerts, remove_from_watchlist
 
 
 st.set_page_config(page_title="Financial Research AI - CAPABL", layout="wide")
 
-CACHE_VERSION = "v3"
+CACHE_VERSION = "v5"
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -53,6 +59,26 @@ def _get_macro_cached(cache_version: str):
         "bonds": get_bonds_tool(),
         "economic": get_economic_indicators_tool(),
     }
+
+
+@st.cache_data(ttl=180, show_spinner=False)
+def _get_fundamentals_cached(ticker: str, cache_version: str):
+    return get_fundamental_snapshot(ticker)
+
+
+@st.cache_data(ttl=180, show_spinner=False)
+def _get_sector_cached(tickers: tuple[str, ...], cache_version: str):
+    return compare_sector(list(tickers))
+
+
+@st.cache_data(ttl=180, show_spinner=False)
+def _get_multi_api_cached(ticker: str, cache_version: str):
+    return get_multi_api_health_tool(ticker)
+
+
+@st.cache_data(ttl=180, show_spinner=False)
+def _get_mpt_cached(tickers: tuple[str, ...], cache_version: str):
+    return optimize_portfolio_mpt(list(tickers))
 
 
 def _render_chart(history: pd.DataFrame, ticker: str) -> None:
@@ -122,7 +148,7 @@ def _render_snapshot(ticker: str, use_transformer: bool) -> None:
 
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Ticker", snapshot.ticker)
-    c2.metric("Last Price", f"{snapshot.last_price:.2f} {snapshot.currency}")
+    c2.metric("Last Price", format_inr(snapshot.last_price) if snapshot.currency == "INR" else f"{snapshot.last_price:.2f} {snapshot.currency}")
     c3.metric("Daily Change", f"{snapshot.day_change:.2f}", f"{snapshot.day_change_pct:.2f}%")
     c4.metric("Volume", f"{snapshot.volume:,}")
     c5.metric("RSI (14)", f"{technicals.rsi_14:.2f}")
@@ -212,6 +238,127 @@ def _render_macro_dashboard() -> None:
     )
 
 
+def _render_indian_market_context() -> None:
+    market = get_market_hours_status()
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Market (IST)", "OPEN" if market.is_open else "CLOSED")
+    c2.metric("Session", market.session)
+    c3.metric("Current IST", market.now_ist.strftime("%Y-%m-%d %H:%M"))
+    st.caption(f"NSE/BSE regular session: {market.opens_at_ist.strftime('%H:%M')} to {market.closes_at_ist.strftime('%H:%M')} IST")
+
+
+def _render_watchlist_section(default_ticker: str) -> None:
+    st.write("Save and manage ticker watchlists in SQLite.")
+
+    list_name = st.text_input("Watchlist name", value="default")
+    ticker_input = st.text_input("Ticker to add", value=default_ticker)
+    notes = st.text_input("Notes", value="")
+
+    c1, c2 = st.columns(2)
+    if c1.button("Add to watchlist"):
+        if add_to_watchlist(list_name, ticker_input, notes):
+            st.success("Added to watchlist.")
+        else:
+            st.warning("Ticker already exists in this watchlist.")
+
+    if c2.button("Remove from watchlist"):
+        if remove_from_watchlist(list_name, ticker_input):
+            st.success("Removed from watchlist.")
+        else:
+            st.warning("Ticker not found in watchlist.")
+
+    rows = get_watchlist(list_name)
+    if rows:
+        st.dataframe(pd.DataFrame([x.__dict__ for x in rows]), use_container_width=True)
+    else:
+        st.info("No watchlist items yet.")
+
+
+def _render_fundamental_and_sector(ticker: str, peers: list[str]) -> None:
+    st.markdown("#### Fundamental Snapshot")
+    snap = _get_fundamentals_cached(ticker, CACHE_VERSION)
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("P/E", f"{snap.pe_ratio:.2f}")
+    c2.metric("Debt/Equity", f"{snap.debt_to_equity:.2f}")
+    c3.metric("Revenue Growth", f"{snap.revenue_growth * 100:.2f}%")
+    c4.metric("Earnings Growth", f"{snap.earnings_growth * 100:.2f}%")
+    st.caption(f"Sector: {snap.sector} | Industry: {snap.industry} | ROE: {snap.return_on_equity * 100:.2f}%")
+
+    st.markdown("#### Sector Comparison")
+    compare_targets = tuple([ticker, *peers])
+    rows = _get_sector_cached(compare_targets, CACHE_VERSION)
+    st.dataframe(pd.DataFrame([x.__dict__ for x in rows]), use_container_width=True)
+
+
+def _render_track_b_advanced(ticker: str, peers: list[str]) -> None:
+    st.markdown("#### Multi-API Health (5+ APIs)")
+    api_rows = _get_multi_api_cached(ticker, CACHE_VERSION)
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "provider": x.provider,
+                    "success": x.success,
+                    "error": x.error,
+                    "keys": ",".join(list(x.payload.keys())[:8]),
+                }
+                for x in api_rows
+            ]
+        ),
+        use_container_width=True,
+    )
+
+    st.markdown("#### MPT Portfolio Optimization")
+    targets = tuple([ticker, *peers])
+    mpt_result = _get_mpt_cached(targets, CACHE_VERSION)
+    if mpt_result is None:
+        st.info("Need at least two symbols with valid historical prices to compute MPT.")
+    else:
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Expected Return", f"{mpt_result.expected_return * 100:.2f}%")
+        c2.metric("Volatility", f"{mpt_result.volatility * 100:.2f}%")
+        c3.metric("Sharpe", f"{mpt_result.sharpe_ratio:.2f}")
+        st.dataframe(
+            pd.DataFrame([{"ticker": k, "weight": round(v, 4)} for k, v in mpt_result.weights.items()]),
+            use_container_width=True,
+        )
+
+    st.markdown("#### Options Pricing (Black-Scholes)")
+    oc1, oc2, oc3 = st.columns(3)
+    spot = oc1.number_input("Spot", min_value=1.0, value=100.0)
+    strike = oc2.number_input("Strike", min_value=1.0, value=105.0)
+    maturity_days = oc3.number_input("Maturity Days", min_value=1, value=30)
+    oc4, oc5 = st.columns(2)
+    rate = oc4.number_input("Risk-free Rate", min_value=0.0, max_value=1.0, value=0.06, step=0.005)
+    vol = oc5.number_input("Volatility", min_value=0.01, max_value=2.0, value=0.25, step=0.01)
+    px = black_scholes_price(spot, strike, maturity_days / 365.0, rate, vol)
+    st.write(f"Call: {px.call_price:.3f} | Put: {px.put_price:.3f}")
+
+
+def _render_alerts_section(default_ticker: str) -> None:
+    st.write("Create simple real-time style alerts evaluated on each app refresh.")
+    c1, c2, c3 = st.columns(3)
+    ticker = c1.text_input("Alert ticker", value=default_ticker)
+    threshold = c2.number_input("Price threshold", min_value=0.0, value=3000.0, step=1.0)
+    direction = c3.selectbox("Direction", ["above", "below"], index=0)
+
+    if st.button("Add price alert"):
+        add_alert(ticker=ticker, rule_type="price", threshold=float(threshold), direction=direction)
+        st.success("Alert added.")
+
+    if st.button("Check alerts now"):
+        triggered = evaluate_price_alerts()
+        if not triggered:
+            st.info("No alerts triggered.")
+        for item in triggered:
+            st.warning(item.message)
+
+    rows = list_alerts(active_only=True)
+    if rows:
+        st.dataframe(pd.DataFrame([dict(row) for row in rows]), use_container_width=True)
+
+
 def _render_workflow_section(ticker: str, peers: list[str], use_transformer: bool) -> None:
     holdings_payload = []
     if "portfolio_df" in st.session_state:
@@ -255,8 +402,10 @@ def _render_workflow_section(ticker: str, peers: list[str], use_transformer: boo
 
 
 def main() -> None:
-    st.title("Financial Research AI Agent - Week 3 & 4")
-    st.caption("CAPABL Internship Project | Multi-Source Financial Analysis")
+    st.title("Financial Research AI Agent - Week 5 & 6")
+    st.caption("CAPABL Internship Project | Domain Specialization + Advanced Track B")
+
+    _render_indian_market_context()
 
     with st.sidebar:
         st.subheader("Research Controls")
@@ -276,6 +425,9 @@ def main() -> None:
             "Portfolio Analytics",
             "Research Workflow",
             "Macro Dashboard",
+            "Fundamentals + Sector",
+            "Watchlists + Alerts",
+            "Advanced (Track B)",
             "Chatbot",
         ]
     )
@@ -300,6 +452,17 @@ def main() -> None:
         _render_macro_dashboard()
 
     with tabs[5]:
+        _render_fundamental_and_sector(ticker=ticker, peers=peers)
+
+    with tabs[6]:
+        _render_watchlist_section(default_ticker=ticker)
+        st.divider()
+        _render_alerts_section(default_ticker=ticker)
+
+    with tabs[7]:
+        _render_track_b_advanced(ticker=ticker, peers=peers)
+
+    with tabs[8]:
         st.subheader("Financial Research Chatbot")
 
         if "messages" not in st.session_state:
