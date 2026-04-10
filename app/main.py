@@ -402,7 +402,7 @@ def _render_workflow_section(ticker: str, peers: list[str], use_transformer: boo
 
 
 def main() -> None:
-    st.title("Financial Research AI Agent - Week 5 & 6")
+    st.title("Financial Research AI Agent - Final Version (Week 7 & 8)")
     st.caption("CAPABL Internship Project | Domain Specialization + Advanced Track B")
 
     _render_indian_market_context()
